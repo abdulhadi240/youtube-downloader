@@ -35,8 +35,7 @@ async def download_video(req: VideoRequest):
             'format': 'best',
             'outtmpl': output_path,
             'quiet': False,
-            'cookiesfrombrowser': 'chrome:/home/user/.var/app/com.google.Chrome/config/google-chrome',  # Full profile path
-            # Alternative: 'cookiesfrombrowser': 'chrome'  # Default profile
+            'cookiefile': "cookies.txt"
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
