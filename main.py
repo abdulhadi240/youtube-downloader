@@ -35,6 +35,7 @@ async def download_video(req: VideoRequest):
             'format': 'best',
             'outtmpl': output_path,
             'quiet': False,
+            'cookiefile': 'cookies.txt',  # Path to the cookies file
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
