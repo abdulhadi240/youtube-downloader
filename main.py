@@ -35,7 +35,9 @@ async def download_video(req: VideoRequest):
             'format': 'best',
             'outtmpl': output_path,
             'quiet': False,
-            'cookiefile': 'cookies.txt',  # Path to the cookies file
+            'cookiesfrombrowser': 'chrome',  # Extract cookies from Chrome
+            # Optional: Specify custom profile path
+            # 'cookiesfrombrowser': 'chrome:~/.var/app/com.google.Chrome'  # For Flatpak Chrome
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -44,6 +46,11 @@ async def download_video(req: VideoRequest):
                 info = ydl.extract_info(req.url, download=True)
                 filename = ydl.prepare_filename(info)
             except yt_dlp.utils.DownloadError as de:
+                if "Sign in to confirm" in str(de):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This video requires authentication. Please ensure the browser has valid YouTube cookies."
+                    )
                 raise HTTPException(status_code=400, detail=f"Download failed: {str(de)}")
 
         # Ensure the file exists before returning it
@@ -62,4 +69,4 @@ async def download_video(req: VideoRequest):
         raise he
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(carstatus_code=500, detail=f"Error: {str(e)}")
