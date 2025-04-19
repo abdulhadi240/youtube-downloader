@@ -35,9 +35,8 @@ async def download_video(req: VideoRequest):
             'format': 'best',
             'outtmpl': output_path,
             'quiet': False,
-            'cookiesfrombrowser': 'chrome',  # Extract cookies from Chrome
-            # Optional: Specify custom profile path
-            # 'cookiesfrombrowser': 'chrome:~/.var/app/com.google.Chrome'  # For Flatpak Chrome
+            'cookiesfrombrowser': 'chrome:/home/user/.var/app/com.google.Chrome/config/google-chrome',  # Full profile path
+            # Alternative: 'cookiesfrombrowser': 'chrome'  # Default profile
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -69,4 +68,4 @@ async def download_video(req: VideoRequest):
         raise he
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        raise HTTPException(carstatus_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
