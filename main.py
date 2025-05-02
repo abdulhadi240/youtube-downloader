@@ -1,70 +1,66 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import yt_dlp
 import uuid
 import os
-from mimetypes import guess_type
 
 app = FastAPI()
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Adjust for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Serve static files (optional)
+DOWNLOAD_DIR = "downloads"
+STATUS_MAP = {}  # Track download status
+app.mount("/files", StaticFiles(directory=DOWNLOAD_DIR), name="files")
 
 class VideoRequest(BaseModel):
     url: str
 
-@app.post("/download")
-async def download_video(req: VideoRequest):
+def download_video_in_background(url: str, video_id: str):
+    file_template = os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s")
     try:
-        # Create a unique ID and output directory for each video download
-        video_id = str(uuid.uuid4())[:8]
-        output_dir = "downloads"
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"{video_id}.%(ext)s")
-
-        # yt-dlp options to download the best quality video
+        STATUS_MAP[video_id] = "in_progress"
         ydl_opts = {
             'format': 'best',
-            'outtmpl': output_path,
-            'quiet': False,
+            'outtmpl': file_template,
             'cookiefile': "cookies.txt"
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Downloading video from {req.url}...")
-            try:
-                info = ydl.extract_info(req.url, download=True)
-                filename = ydl.prepare_filename(info)
-            except yt_dlp.utils.DownloadError as de:
-                if "Sign in to confirm" in str(de):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="This video requires authentication. Please ensure the browser has valid YouTube cookies."
-                    )
-                raise HTTPException(status_code=400, detail=f"Download failed: {str(de)}")
-
-        # Ensure the file exists before returning it
-        if not os.path.exists(filename):
-            raise HTTPException(status_code=500, detail="File not found after download.")
-
-        # Determine the media type dynamically
-        media_type = guess_type(filename)[0] or "video/mp4"
-        return FileResponse(
-            filename,
-            media_type=media_type,
-            filename=os.path.basename(filename)
-        )
-
-    except HTTPException as he:
-        raise he
+            info = ydl.extract_info(url, download=True)
+            ext = info.get('ext', 'mp4')
+            final_file = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
+            if os.path.exists(final_file):
+                STATUS_MAP[video_id] = "published"
+                STATUS_MAP[f"{video_id}_file"] = final_file
+            else:
+                STATUS_MAP[video_id] = "failed"
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        print("Download error:", e)
+        STATUS_MAP[video_id] = "failed"
+
+@app.post("/download")
+async def download(req: VideoRequest, background_tasks: BackgroundTasks):
+    video_id = str(uuid.uuid4())[:8]
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    STATUS_MAP[video_id] = "queued"
+    background_tasks.add_task(download_video_in_background, req.url, video_id)
+
+    return JSONResponse({
+        "message": "Download started",
+        "video_id": video_id,
+        "status_url": f"http://localhost:8000/status/{video_id}"
+    })
+
+@app.get("/status/{video_id}")
+async def check_status(video_id: str):
+    status = STATUS_MAP.get(video_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Invalid video ID")
+
+    if status == "published":
+        file_path = STATUS_MAP.get(f"{video_id}_file")
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="Downloaded file missing.")
+        return FileResponse(file_path, media_type="video/mp4", filename=os.path.basename(file_path))
+
+    return {"status": status}
